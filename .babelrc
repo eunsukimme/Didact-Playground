@@ -9,6 +9,7 @@
         "runtime": "classic" // defaults to classic
         // "importSource": "custom-jsx-library" // defaults to react (only in automatic runtime)
       }
-    ]
+    ],
+    "@babel/typescript"
   ]
 }
