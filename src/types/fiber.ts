@@ -7,7 +7,7 @@ export interface Element {
 }
 
 export interface Fiber {
-  type?: string;
+  type?: string | Function;
   dom: HTMLElement | Text | null;
   parent?: Fiber;
   child?: Fiber;

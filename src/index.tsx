@@ -30,7 +30,7 @@ function createDom(fiber: Fiber) {
   const dom =
     fiber.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
-      : document.createElement(fiber.type!);
+      : document.createElement(fiber.type as string);
 
   updateDom(dom, { children: [] }, fiber.props);
 
@@ -100,22 +100,35 @@ function commitWork(fiber?: Fiber) {
   if (!fiber) {
     return;
   }
-  // commit한 시점에 모든 fiber는 DOM 노드가 생성되어있다.
+  // host component 라면 DOM 이 존재하지만, function component 라면 DOM이 존재하지 않는다
   // param으로 받은 fiber는 parent가 반드시 존재한다
-  // 그러므로 type assertion을 수행
-  const domParent = fiber.parent!.dom;
-  if (fiber.effectTag === "PLACEMENT") {
-    domParent?.appendChild(fiber.dom!);
+  let domParentFiber = fiber.parent;
+  // dom 이 있는 parent fiber까지 타고 올라간다
+  while (!domParentFiber!.dom) {
+    domParentFiber = domParentFiber!.parent;
   }
-  if (fiber.effectTag === "DELETION") {
-    domParent?.removeChild(fiber.dom!);
+  const domParent = domParentFiber!.dom;
+
+  if (fiber.effectTag === "PLACEMENT" && fiber.dom) {
+    domParent.appendChild(fiber.dom);
   }
-  if (fiber.effectTag === "UPDATE") {
+  if (fiber.effectTag === "UPDATE" && fiber.dom) {
     updateDom(fiber.dom, fiber.alternate!.props, fiber.props);
+  }
+  if (fiber.effectTag === "DELETION" && fiber.dom) {
+    commitDeletion(domParent, fiber);
   }
 
   commitWork(fiber.child);
   commitWork(fiber.sibling);
+}
+
+function commitDeletion(domParent: Fiber["dom"], fiber?: Fiber) {
+  if (fiber?.dom) {
+    domParent?.removeChild(fiber?.dom);
+  } else {
+    commitDeletion(domParent, fiber?.child);
+  }
 }
 
 let nextUnitOfWork: Fiber | null = null;
@@ -136,16 +149,15 @@ function render(element: Element, container: HTMLElement) {
 }
 
 function performUnitOfWork(fiber: Fiber): Fiber | null {
-  // TODO create element and add to dom node
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber);
+  const isFunctionComponent = fiber.type instanceof Function;
+
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
   }
 
-  // TODO create new fibers for children
-  const childElements = fiber.props.children as Element[];
-  reconcileChildren(fiber, childElements);
-
-  // TODO return(select) next unit of work
+  // return(select) next unit of work
   if (fiber.child) {
     return fiber.child;
   }
@@ -160,6 +172,22 @@ function performUnitOfWork(fiber: Fiber): Fiber | null {
   }
 
   return null;
+}
+
+function updateFunctionComponent(fiber: Fiber) {
+  const children = [(fiber.type as Function)(fiber.props)];
+
+  reconcileChildren(fiber, children);
+}
+
+function updateHostComponent(fiber: Fiber) {
+  // create element and add to dom node
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  // create new fibers for children
+  reconcileChildren(fiber, fiber.props.children as Element[]);
 }
 
 function reconcileChildren(wipFiber: Fiber, childElements: Element[]) {
@@ -239,21 +267,24 @@ const Didact = {
 const container = document.getElementById("root") as HTMLElement;
 
 const updateValue = (e: any) => {
-  console.log(e);
   rerender(e.target.value);
 };
 
-const rerender = (value: string) => {
-  const element = (
-    // @ts-ignore
+interface AppProps {
+  name: string;
+}
+
+function App({ name }: AppProps) {
+  return (
     <div>
-      {/* @ts-ignore */}
-      <input onInput={updateValue} value={value} />
-      {/* @ts-ignore */}
-      <h2>Hello {value}</h2>
-      {/* @ts-ignore */}
+      <input type="text" value={name} onInput={updateValue} />
+      <h1>Hi, {name}</h1>
     </div>
   );
+}
+
+const rerender = (value: string) => {
+  const element = <App name={value} />;
   Didact.render(element, container);
 };
 
