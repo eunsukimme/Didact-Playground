@@ -1,4 +1,4 @@
-import { Fiber, Element } from "./types/fiber";
+import { Fiber, Element, Hook, SetStateAction } from "./types/fiber";
 
 function createTextElement(text: string): Element {
   return {
@@ -174,10 +174,56 @@ function performUnitOfWork(fiber: Fiber): Fiber | null {
   return null;
 }
 
+let wipFiber: Fiber | null = null;
+let hookIndex: number | null = null;
+
 function updateFunctionComponent(fiber: Fiber) {
+  wipFiber = fiber;
+  hookIndex = 0;
+  fiber.hooks = [];
   const children = [(fiber.type as Function)(fiber.props)];
 
   reconcileChildren(fiber, children);
+}
+
+function useState<T>(
+  initialValue: T
+): [T, (action: T | SetStateAction<T>) => void] {
+  const oldHook = wipFiber?.alternate?.hooks?.[hookIndex as number] as Hook<T>;
+
+  const hook: Hook<T> = {
+    state: oldHook ? oldHook.state : initialValue,
+    queue: [],
+  };
+
+  const isSetStateAction = (action): action is SetStateAction<T> => {
+    return action instanceof Function;
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    if (isSetStateAction(action)) {
+      hook.state = action(hook.state);
+    } else {
+      hook.state = action;
+    }
+  });
+
+  const setState = (action: T | SetStateAction<T>) => {
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot?.dom as Fiber["dom"],
+      props: currentRoot?.props as Fiber["props"],
+      alternate: currentRoot,
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber?.hooks?.push(hook);
+  (hookIndex as number)++;
+
+  return [hook.state, setState];
 }
 
 function updateHostComponent(fiber: Fiber) {
@@ -262,30 +308,31 @@ window.requestIdleCallback(workLoop);
 const Didact = {
   createElement,
   render,
+  useState,
 };
 
 const container = document.getElementById("root") as HTMLElement;
 
-const updateValue = (e: any) => {
-  rerender(e.target.value);
-};
+function App() {
+  const [count, setCount] = Didact.useState(0);
+  const [name, setName] = Didact.useState("");
 
-interface AppProps {
-  name: string;
-}
-
-function App({ name }: AppProps) {
   return (
     <div>
-      <input type="text" value={name} onInput={updateValue} />
-      <h1>Hi, {name}</h1>
+      <h1>Count: {count}</h1>
+      <button onClick={() => setCount((c) => c + 1)}>increment</button>
+
+      <hr />
+
+      <input
+        type="text"
+        value={name}
+        onInput={(e) => setName(e.target.value)}
+      />
+      <h2>Hi, {name}</h2>
     </div>
   );
 }
 
-const rerender = (value: string) => {
-  const element = <App name={value} />;
-  Didact.render(element, container);
-};
-
-rerender("World");
+const element = <App />;
+Didact.render(element, container);
